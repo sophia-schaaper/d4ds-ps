@@ -1,0 +1,214 @@
+---
+title: "MY472: Mid-Term Problem Set Solutions"
+author: "Sophia Schaaper"
+date: "Autumn Term 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE} 
+# this chunk contains code that sets global options for the entire .Rmd. 
+# we use include=FALSE to suppress it from the top of the document, but it will still appear in the appendix. 
+
+knitr::opts_chunk$set(echo = FALSE) # actually set the global chunk options. 
+# we set echo=FALSE to suppress code such that it by default does not appear throughout the document. 
+# note: this is different from .Rmd default
+```
+
+<!-- DO NOT EDIT THIS LINE OR ANYTHING ABOVE IT, EXCEPT PUTTING YOUR CANDIDATE NUMBER AT THE TOP. ALL OF YOUR WORK SHOULD BE COMPLETED BELOW HERE. -->
+
+```{r setup libraries, message=F, warning=F}
+
+library(RSelenium)
+library(tidyverse)
+library(netstat)
+library(xml2)
+library(purrr)
+library(tibble)
+library(stringr)
+library(quanteda)
+library(rvest)
+
+```
+
+##### Part 1.
+
+For this exercise, we want to find every hearing transcript corresponding to a federal judicial nomination during the 117th Congress. We start by using the code below, and RSelenium, to navigate to the page that lists all the Senate hearing transcripts, and navigate to the 117th Congress.
+
+```{r navigate to 117th congress, echo=TRUE, eval=FALSE}
+rD <- rsDriver(browser=c("firefox"), verbose = F, port = netstat::free_port(random = TRUE), chromever = NULL) 
+driver <- rD$client
+Sys.sleep(2)
+
+url <- "https://www.congress.gov/senate-hearing-transcripts/"
+driver$navigate(url)
+Sys.sleep(2)
+
+#use dropdown menu to navigate to 117th congress
+dropdown <- driver$findElement(using = "xpath", value = '//*[@id="congresses"]')
+dropdown$clickElement()
+Sys.sleep(2)
+
+Congress117 <- driver$findElement(using = "xpath", value = '/html/body/div[2]/div/main/div/form/div/select/option[2]')
+Congress117$clickElement()
+Sys.sleep(2)
+
+rm(url)
+rm(dropdown)
+rm(Congress117)
+
+```
+
+##### Part 2.
+
+We then want to extract the transcripts from the confirmation hearings of the Judiciary Committee. We use the code below to iterate over all the hearings and find the relevant ones. 
+
+```{r extract table properly, echo=TRUE, eval=FALSE}
+
+page_source <- driver$getPageSource()[[1]]
+page_source <- read_html(page_source)
+Sys.sleep(2)
+
+#grab all the links
+hearing_links <- page_source %>%
+  html_element("table") %>%
+  html_nodes("tr") %>%
+  map_chr(~ .x %>%
+            html_node("a") %>% 
+            html_attr("href"))
+
+#to skip the first row that doesn't even have a link
+hearing_links <- hearing_links[-1] 
+
+Sys.sleep(2)
+
+#grab the info from each hearing
+hearings_table <- html_table(page_source, fill = TRUE)[[1]]
+hearings_table <- as.tibble(hearings_table) %>%
+  #match links to table
+  mutate(link = paste0("https://www.congress.gov",hearing_links)) %>%
+  filter(grepl("Judiciary", `Committee`, ignore.case = TRUE) &
+           grepl("CONFIRMATION", `Hearing Title`, ignore.case = TRUE))  
+
+Sys.sleep(2)
+
+rm(page_source)
+
+```
+
+##### Part 3.
+
+In this part, using the code below, we iterate over the hearings we found, extract the text of the hearing and save this text as a file in a 'transcripts' folder.
+```{r extract hearing text try again, echo=TRUE, eval=FALSE}
+
+if (!dir.exists("transcripts")) {
+  dir.create("transcripts", showWarnings = FALSE)}
+
+for (i in seq_len(nrow(hearings_table))) {
+  hearing_title <- hearings_table$`Hearing Number`[i]
+  hearing_link <- hearings_table$link[i]
+  
+  hearing_number <- str_extract(hearing_title, "\\d{3}-\\d{3}")
+  
+  driver$navigate(hearing_link)
+  Sys.sleep(2)
+  
+  hearing_text <- read_html(driver$getPageSource()[[1]])%>%
+    html_element("pre") %>%
+    html_text()
+  
+  file_name <- file.path("transcripts", paste0(hearing_number, ".txt"))
+  writeLines(hearing_text, file_name)
+}
+
+#closing session
+driver$close()
+rD$server$stop()
+```
+
+The table below shows the first 200 characters of hearing 117-873.
+
+```{r preview hearing, echo=TRUE}
+#load 200 characters from 873
+file_text <- paste((readLines("transcripts/117-873.txt", warn = FALSE)), collapse = "\n")
+cat(substr(file_text, 1, 200))
+```
+
+##### Part 4.
+
+We then want to create a dfm from the text of these hearings. For this, we need to clean each hearing transcript and save each paragraph as a separate document in the dfm. We use the quanteda package to count the frequency of words in these hearings. The table below shows the top 20 words used.
+
+```{r create dfm}
+
+#get files in folder to iterate over
+files <- list.files("transcripts", pattern = "\\.txt$", full.names = TRUE)
+
+#function to clean out headers, table, etc, separate by paragraph
+clean_transcript <- function(file_path) {
+  text <- paste((readLines(file_path, warn = FALSE)), 
+                collapse = "\n") %>%
+    str_remove_all("(\\n[A-Z .,\\-'&]+\\n)+") %>%
+    str_remove_all("(Table of Contents.*)|(INTRODUCTION.*)|(\\*\\*.*)|(HEARING BEFORE.*)") %>%
+    str_replace_all("#x27", "'") %>%
+    str_remove_all("[`=]")
+  paragraphs <- unlist(str_split(text, "\\n\\n+"))
+  
+  return(paragraphs)
+}
+
+#apply function
+all_paragraphs <- unlist(lapply(files, clean_transcript))
+
+#clean text
+dfm <- corpus(all_paragraphs) %>%
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) %>%
+  tokens_remove(stopwords("en")) %>%
+  tokens_remove(pattern = "^[a-zA-Z]$", valuetype = "regex") %>%
+  tokens_wordstem() %>%
+  dfm() %>%
+  dfm_trim(min_docfreq = 5)
+
+#calculate word frequencies and find top
+word_frequencies <- colSums(dfm)
+
+top_words <- data.frame(word = names(word_frequencies),
+                        frequency = word_frequencies) %>%
+  arrange(desc(frequency)) %>%
+  head(20)
+
+print(top_words)
+```
+Most of these words are not surprising, as they are common in the context of a hearing for the confirmation of federal Judges by the Senate. However, the presence of "gupta" and "durbin" in the list is surprising, as they are names and not common words. Since these aren't necessarily relevant to the content of the hearings, we can remove them, along with some other potentially non-illuminating words (such as 'can', or 'mr' and 'ms') from the list of words and print a new list of the top 20 words, in the table below.
+
+```{r getting rid of names}
+
+#getting rid of names, or what seems potentially irrelevant 
+
+custom_stopwords <- c("gupta", "mr", "ms", "dr", "durbin", "ve", "can", "one")
+dfm <- corpus(all_paragraphs) %>%
+  tokens(remove_punct = TRUE, remove_numbers = TRUE) %>%
+  tokens_remove(stopwords("en")) %>%
+  tokens_remove(custom_stopwords) %>%
+  tokens_remove(pattern = "^[a-zA-Z]$", valuetype = "regex") %>%
+  tokens_wordstem() %>%
+  dfm() %>%
+  dfm_trim(min_docfreq = 5)
+
+word_frequencies <- colSums(dfm)
+
+top_words <- data.frame(word = names(word_frequencies),
+                        frequency = word_frequencies) %>%
+  arrange(desc(frequency)) %>%
+  head(20)
+
+print(top_words)
+
+```
+
+<!-- DO NOT EDIT THIS LINE OR ANYTHING BELOW IT. ALL OF YOUR WORK SHOULD BE COMPLETED ABOVE. -->
+
+## Appendix: All code in this assignment
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE} 
+# this chunk generates the complete code appendix. 
+# eval=FALSE tells R not to run (``evaluate'') the code here (it was already run before).
+```

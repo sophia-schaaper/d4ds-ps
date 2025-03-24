@@ -1,0 +1,302 @@
+---
+title: "MY472: Mid-Term Problem Set Solutions"
+author: "Sophia Schaaper"
+date: "Autumn Term 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# this chunk contains code that sets global options for the entire .Rmd. 
+# we use include=FALSE to suppress it from the top of the document, but it will still appear in the appendix. 
+
+knitr::opts_chunk$set(echo = FALSE) # actually set the global chunk options. 
+# we set echo=FALSE to suppress code such that it by default does not appear throughout the document. 
+# note: this is different from .Rmd default
+```
+
+<!-- DO NOT EDIT THIS LINE OR ANYTHING ABOVE IT, EXCEPT PUTTING YOUR CANDIDATE NUMBER AT THE TOP. ALL OF YOUR WORK SHOULD BE COMPLETED BELOW HERE. -->
+
+```{r setup libraries, message=FALSE, warning=FALSE}
+library(rvest)
+library(dplyr)
+library(stringr)
+```
+
+#### Part 1.
+
+In this section, we will scrape data on U.S. presidential elections, since 1952, from Wikipedia. We will extract information on the top two candidates (`candidate_name`), their parties (`candidate_party`), the number of votes (`pop_vote`), what percentage of the vote they got (`pop_vote_perc`), the number of electoral votes (`ec_vote`), and whether they won the election (`winner`, a binary variable, 1 if they won, 0 if they didn't). We will then save the data as a CSV file. The table below shows the data for the years 1992, 2008, and 2016.
+
+```{r part 1, message=FALSE, warning=FALSE}
+
+#Part 1
+
+#generate the URLs
+years <- seq(1952, 2024, by = 4) 
+generate_url_pt1 <- function(year) {
+  paste0("https://en.wikipedia.org/wiki/", year, 
+         "_United_States_presidential_election")}
+
+urls_pt1 <- sapply(years, generate_url_pt1) 
+
+#function to scrape the data
+get_election_data <- function(url, year) {
+  Sys.sleep(2)
+  page <- read_html(url)
+  
+  #using different selectors because one works 
+  #on some and not on others and vice versa
+  info_table <- page %>% 
+    html_node(".infobox-full-data table")
+
+  if (is.null(info_table)) {
+    info_table <- read_html(url) %>% 
+      html_node("#mw-content-text > div.mw-content-ltr.mw-parser-output > table.infobox.ib-election.infobox-table.vevent > tbody > tr:nth-child(6) > td > table > tbody")}
+    
+  candidate_names <- info_table %>%
+    html_nodes("tr:nth-child(2) td:nth-child(2) a,tr:nth-child(2) td:nth-child(3) a") %>%
+    html_text()
+    
+  candidate_parties <- info_table %>%
+    html_nodes("tr:nth-child(3) td:nth-child(2) a, tr:nth-child(3) td:nth-child(3) a") %>%
+    html_text()
+  
+  pop_vote <- info_table %>%
+    html_nodes("tr:nth-child(8) td:nth-child(2),tr:nth-child(8) td:nth-child(3)") %>% 
+    html_text() %>%
+    #removing references, got chatgpt to help me with this
+    str_remove_all("\\[.*?\\]") %>% 
+    str_remove_all(",") %>%
+    as.numeric()
+  
+  pop_vote_perc <- info_table %>%
+    html_nodes("tr:nth-child(9) td:nth-child(2),tr:nth-child(9) td:nth-child(3)") %>% 
+    html_text() %>%
+    str_remove_all("%") %>%
+    str_remove_all("\n")
+  
+  ec_vote <- info_table %>%
+    html_nodes("tr:nth-child(6) td:nth-child(2),tr:nth-child(6) td:nth-child(3)") %>% 
+    html_text() %>%
+    str_remove_all("\n") %>%
+    str_remove_all("\\[.*?\\]") %>%
+    as.numeric()
+  
+  winner <- ifelse(ec_vote == max(ec_vote), 1, 0)
+  
+#somehow they are not always the same lengths so need this
+  #to avoid errors
+   n <- min(length(candidate_names), length(candidate_parties),
+            length(pop_vote), length(pop_vote_perc), length(ec_vote))
+  
+  candidate_names <- candidate_names[1:n]
+  candidate_parties <- candidate_parties[1:n]
+  pop_vote <- pop_vote[1:n]
+  pop_vote_perc <- pop_vote_perc[1:n]
+  ec_vote <- ec_vote[1:n]
+
+  
+  election_data <- tibble(
+    election_year = year,
+    candidate_name = candidate_names,
+    candidate_party = candidate_parties,
+    pop_vote = pop_vote,
+    pop_vote_perc = pop_vote_perc,
+    ec_vote = ec_vote,
+    winner = winner)
+  
+  return (election_data)
+}
+
+
+#iterating over the urls with the years
+election_data <- lapply(seq_along(urls_pt1), function(i) {
+  get_election_data(urls_pt1[i], years[i])
+}) 
+
+election_data <- do.call(rbind, election_data)
+
+#arrange and save as CSV
+election_data <- election_data %>%
+  arrange(election_year, desc(pop_vote))
+
+write.csv(election_data, "pres_cands_df.csv", row.names = FALSE)
+
+print(election_data %>%
+  filter(election_year %in% c(1992, 2008, 2016)))
+```
+
+#### Part 2.
+
+In this part, we will scrape data on US senators, from the 83rd Congress through the 118th Congress, from Wikipedia. We will extract information on the senators (`senator_name`), their parties (`senator_party`, where `D` is for the Democratic Party, `R` the Republican Party, and `I` if they are Independent) and the states they represent (`senator_state`). We will then save the data as a CSV file. The table below shows the data for California (`CA`) senators in the 90th and 115th Congresses.
+
+```{r part 2}
+
+#Part 2
+
+#generate the congress number
+congress <- seq(83, 110, by = 1)
+suffix <- c("rd", "th", "th", "th", "th", "th", "th", "th", "st", "nd")
+congress <- paste0(congress, suffix)
+
+congress_add <- seq(111, 118, by = 1)
+suffix_add <- "th"
+congress_add <- paste0(congress_add, suffix_add)
+
+congress <- c(congress, congress_add)
+
+#function to generate URLs
+generate_url_pt2 <- function(congress) {
+  paste0("https://en.wikipedia.org/wiki/List_of_United_States_senators_in_the_", congress, "_Congress")
+}
+
+urls_pt2 <- sapply(congress, generate_url_pt2)
+
+#remove unnecessary variables
+rm(suffix, suffix_add, congress_add)
+
+#function automating over all:
+
+#needed to separate party and state
+party_state <- function(cell_text) {
+  parts <- unlist(strsplit(cell_text, " "))
+  party <- parts[length(parts) - 1]  
+  state <- parts[length(parts)]     
+  
+  return(list(party = party, state = state))
+}
+
+#generate function to scrape data
+
+get_senators_data <- function(url, congress) {
+
+  #needed to recode congresses 114 onwards
+  state_abbreviations <- c(
+    "Alabama" = "AL", "Alaska" = "AK", "Arizona" = "AZ", "Arkansas" = "AR", 
+    "California" = "CA", "Colorado" = "CO", "Connecticut" = "CT", "Delaware" = "DE", 
+    "Florida" = "FL", "Georgia" = "GA", "Hawaii" = "HI", "Idaho" = "ID", 
+    "Illinois" = "IL", "Indiana" = "IN", "Iowa" = "IA", "Kansas" = "KS", 
+    "Kentucky" = "KY", "Louisiana" = "LA", "Maine" = "ME", "Maryland" = "MD", 
+    "Massachusetts" = "MA", "Michigan" = "MI", "Minnesota" = "MN", 
+    "Mississippi" = "MS", "Missouri" = "MO", "Montana" = "MT", "Nebraska" = "NE", 
+    "Nevada" = "NV", "New Hampshire" = "NH", "New Jersey" = "NJ", 
+    "New Mexico" = "NM", "New York" = "NY", "North Carolina" = "NC", 
+    "North Dakota" = "ND", "Ohio" = "OH", "Oklahoma" = "OK", "Oregon" = "OR", 
+    "Pennsylvania" = "PA", "Rhode Island" = "RI", "South Carolina" = "SC", 
+    "South Dakota" = "SD", "Tennessee" = "TN", "Texas" = "TX", "Utah" = "UT", 
+    "Vermont" = "VT", "Virginia" = "VA", "Washington" = "WA", "West Virginia" = "WV", 
+    "Wisconsin" = "WI", "Wyoming" = "WY"
+  ) #ChatGPT very much generated this for me
+
+  party_abbreviations <- c(
+    "Democratic" = "D",
+    "Republican" = "R",
+    "Independent" = "I"
+  )
+
+  #scraping the data
+  Sys.sleep(2)
+  page <- read_html(url)
+
+  #list is the second wikitable
+  list_of_senators <- page %>%
+    html_nodes(".wikitable") %>%
+    .[2] %>%  
+    html_node("tbody")
+
+  rows <- list_of_senators %>%
+    html_nodes("tr") %>%
+    .[-1] #ignore row with header
+
+  #get info of each row
+  data <- lapply(rows, function(row) {
+   
+    #info on senators is in second column
+    info <- row %>%
+      html_node("td:nth-child(2)") %>%
+      html_nodes("a")
+
+    #some pages have historical rank in 2nd column, so need 3rd
+    if (length(info) < 3) {
+      info <- row %>%
+        html_node("td:nth-child(3)") %>%
+        html_nodes("a")
+
+      #congresses 114 onwards are setup differently
+      if (length(info) < 3) {
+        senator_name <- row %>%
+          html_node("td:nth-child(3)") %>%
+          html_text(trim = TRUE) %>%
+          gsub("\\[.*?\\]", "", .) %>%  #remove references
+          #ChatGPT helped me make the pattern for this
+          trimws()
+        
+        senator_party <- row %>%
+          html_node("td:nth-child(4)") %>%
+          html_text(trim = TRUE) %>%
+          gsub("\\[.*?\\]", "", .) %>%
+          trimws() %>%
+          {party_abbreviations[.] %||% .}  #recode with abbreviation for cohesion
+        
+        senator_state <- row %>%
+          html_node("td:nth-child(5)") %>%
+          html_text(trim = TRUE) %>%
+          gsub("\\[.*?\\]", "", .) %>% 
+          trimws() %>%
+          {state_abbreviations[.] %||% .}
+          #chatgpt helped with line to recode to abbreviation
+        
+        return(tibble(congress, senator_name, 
+                      senator_party, senator_state))
+      }
+    }
+
+    #extract senator name (always first element)
+    senator_name <- info[[1]] %>%
+      html_text(trim = TRUE)
+
+    #get the whole cell - to avoid problems with references
+    cell <- paste(info %>% html_text(trim = TRUE), collapse = " ")
+
+    #remove refs
+    cleaned_cell <- gsub("\\[.*?\\]", "", cell)
+    
+    #use party-state function to separate party and state
+    party_state <- party_state(cleaned_cell) 
+    tibble(congress, senator_name,
+           senator_party = party_state$party, 
+           senator_state = party_state$state)
+  })
+
+  bind_rows(data)
+}
+
+#iterating over the urls and saving
+
+senators_data <- lapply(seq_along(urls_pt2), function(i) {
+  get_senators_data(urls_pt2[i], congress[i])
+})
+
+senators_data <- bind_rows(senators_data)
+
+senators_data <- senators_data %>%
+  #remove suffix  from congress to arrange
+  mutate(congress_numeric = as.numeric(gsub("\\D", "", congress))) %>% 
+  arrange(desc(congress_numeric), senator_state) %>% 
+  select(-congress_numeric)  #remove additional column
+
+write.csv(senators_data, "sens_df.csv", row.names = FALSE)
+
+print(senators_data %>% 
+        filter(senator_state == "CA" &
+        `congress` %in% c("90th", "115th")))
+
+```
+
+<!-- DO NOT EDIT THIS LINE OR ANYTHING BELOW IT. ALL OF YOUR WORK SHOULD BE COMPLETED ABOVE. -->
+
+## Appendix: All code in this assignment
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+# this chunk generates the complete code appendix. 
+# eval=FALSE tells R not to run (``evaluate'') the code here (it was already run before).
+```

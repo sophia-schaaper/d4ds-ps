@@ -1,0 +1,214 @@
+---
+title: "MY472: Mid-Term Problem Set Solutions"
+author: "Sophia Schaaper"
+date: "Autumn Term 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# this chunk contains code that sets global options for the entire .Rmd. 
+# we use include=FALSE to suppress it from the top of the document, but it will still appear in the appendix. 
+
+knitr::opts_chunk$set(echo = FALSE) # actually set the global chunk options. 
+# we set echo=FALSE to suppress code such that it by default does not appear throughout the document. 
+# note: this is different from .Rmd default
+```
+
+<!-- DO NOT EDIT THIS LINE OR ANYTHING ABOVE IT, EXCEPT PUTTING YOUR CANDIDATE NUMBER AT THE TOP. ALL OF YOUR WORK SHOULD BE COMPLETED BELOW HERE. -->
+
+```{r setup libraries, message=FALSE}
+library(tibble)
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(lubridate)
+library(ggplot2)
+library(stringr)
+```
+
+#### Part 1.
+
+In this part, we load a data set containing biographical data on U.S. federal Judges. In this data set, each row represents a specific judge, and the columns provide information about their various appointments, but also about their careers more generally.
+
+```{r judges data}
+#Part1 
+
+bio.file.path <- "judges.csv"
+
+judges <- read.csv(bio.file.path) %>% 
+  as_tibble()
+
+print(judges[4,200]) #example for why this data may be untidy
+
+```
+
+There are various rules for data to be considered tidy:
+
+1.  **Each variable must have its own column**: in this data set each variable seems carefully separated into their own column, we even have specific columns for starting dates and ending dates of each appointment, and details on each degree received by the judges.
+2.  **Each observation must have its own row**: each row represents a single, specific judge, with a unique ID. However, if the information (observations) we want to look at is about the appointments, and not just the judges biographical information, we may need to pivot the data to make it tidy, where each appointment would have its own row.
+3.  **Each value must have its own cell**: the second to last column, called `Professional Career`, may be causing issues here. We see that if a judge has had various roles outside of their judge appointments, which seems to be quite likely the case, they are all bundled into this one cell: for instance, for Nancy G Abudu, the printed cell above, it lists private practice, staff attorney, legal director, etc. These are various values in one cell, making this data untidy.
+
+We conclude that this data set is *mostly* tidy, if the observations we are interested in is the judges biographical information, and not the appointments, as this allows rule 2 to be satisified. Yet, even so, it cannot be considered completely tidy due to some columns which may not be properly separated, such as `Professional Career`.
+
+#### Part 2.
+
+In this part, we would like to learn more about the judges' various appointments. We need to transform this data so that each row corresponds to a specific appointment.
+
+The table below shows the first 5 rows of the data set, where, for each appointment, we can see which judge was appointed to it (`jid`, `nid`, `First Name`, `Middle Name`, `Last Name`, and `Suffix`), which `Court Type` it was, when their appointment started (`Commission Date`), and when it ended (`Termination Date`, a judge is still actively serving in a court if the `Termination Date` is missing).
+
+```{r pivot judges data}
+#Part2.1
+
+#pivot so each appointment is its own row
+judges_long <- judges %>% 
+  #dont want nor need all the columns to stay, just the relevant ones
+  select(nid, jid, Last.Name, First.Name, 
+         Middle.Name, Suffix, 
+         starts_with("Court.Type"), 
+         starts_with("Commission.Date"),
+         starts_with("Termination.Date")) %>%
+  pivot_longer(cols = c(starts_with("Court.Type"),
+                      starts_with("Commission.Date"),
+                      starts_with("Termination.Date")),
+               names_to = c(".value", "Appointment"),
+               
+               #this is to extract the number at the end of the column name
+               #and create the new variable Appointment,
+               #ChatGPT helped me figure out how to isolate this!
+               names_pattern = "(.*)\\.\\.(\\d+)\\.") %>%
+  
+  
+  filter(!is.na(Commission.Date), Commission.Date != "", #remove if didn't start
+         !is.na(Court.Type), Court.Type != "") %>% #remove if not assigned to court
+  mutate(Appointment = as.numeric(Appointment))
+
+print(head(judges_long, n = 5)) #when it is a tibble, adding n=5 ADDS 5 rows to the default 5 rows it prints, meaning it would print 10 rows. Because we only want 5 rows we use print(head(..., n= 5))
+```
+
+We then want to aggregate how many appointments each judge had. 
+
+The table below shows the first 5 rows of the data set, where we can see the judge's ID number (`nid`), the number of appointments they had (`Appointments`), their earliest commission date (`Min Commission Date`), and their latest termination date (`Max Termination Date`).
+
+```{r aggregate appointments}
+
+#Part2.2
+
+#aggregate number of appointments per judge
+judge_appointments <- judges_long %>%
+  #because if there is no termination date 
+  #they are still serving hence today's date
+  mutate(Termination.Date = 
+           ifelse(Termination.Date == "" | is.na(Termination.Date),
+                  as.character(Sys.Date()),Termination.Date),
+         Commission.Date = as.Date(Commission.Date, format = "%Y-%m-%d"),
+         Termination.Date = as.Date(Termination.Date, format = "%Y-%m-%d")) %>%
+
+  group_by(nid) %>%
+  summarise(Min.Commission.Date = min(Commission.Date, na.rm = TRUE),
+            Max.Termination.Date = max(Termination.Date, na.rm = TRUE),
+            Appointments = max(Appointment, na.rm = TRUE),
+            .groups = "drop") %>%
+  
+  arrange(desc(Appointments))
+
+#summary stats
+mean_appointments <- mean(judge_appointments$Appointments)
+median_appointments <- median(judge_appointments$Appointments)
+
+print(head(judge_appointments, n = 5))
+```
+
+The mean number of appointments is `r mean_appointments` and the median number of appointments is `r median_appointments`.
+
+#### Part 3.
+
+In this part, we plot the number of actively serving judges on the 1st of January of every year from 1790 to 2024. We iterate over the years and count each judge that was serving on any court. 
+
+The graph below is a line plot representing the evolution of the number of judges serving on the 1st of January every year.
+
+```{r plot active judges, warning=FALSE}
+
+#Part3
+
+#relevant years
+years <- seq(from = as.Date("1790-01-01"), to = as.Date("2024-01-01"), by = "year")
+
+#create function to iterate over the years and count each judge where 
+#the year is included in the range of 
+#their min.commission.date to max.termination.date
+active_judges <- sapply(years, function(year) {
+  sum(judge_appointments$Min.Commission.Date <= year & 
+      judge_appointments$Max.Termination.Date >= year, 
+      na.rm = TRUE)})
+
+active_judges_df <- data.frame(Year = years, 
+                               ActiveJudges = active_judges)
+
+#plot as line, tried bar plot but some empty lines made it look odd
+ggplot(active_judges_df, aes(x = Year, y = ActiveJudges)) +
+  geom_line(color = "#0072B2", size = 1) + 
+  scale_x_date(date_labels = "%Y", date_breaks = "20 years") + 
+  
+  labs(title = "Number of Actively Serving Judges Over Time (1790–2024)",
+       x = "Year", y = "Number of Judges",
+       caption = "Source: Federal Judicial Center (FJC)") +
+  
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+        plot.caption = element_text(size = 10, face = "italic"),
+        axis.line = element_line(color = "black"))
+
+```
+
+#### Part 4.
+
+In this part, we want to learn more about certain judges' professional careers before their appointments, specifically the careers of the judges who started serving after the 1st of January 1970. We want to count the number of jobs each judge had before their first appointment. 
+
+The table below shows the first 5 rows of the data set, where we can see the judge's ID number (`nid`), their full name (`name`), and the number of jobs they had before their first appointment (`jobs`).
+
+```{r judges jobs}
+
+#Part4
+
+#start from original judges dataset to get prof. career
+judges_tibble <- judges %>%
+  mutate(Commission.Date = as.Date(`Commission.Date..1.`, 
+                                   format = "%Y-%m-%d")) %>%
+  filter(Commission.Date >= as.Date("1970-01-01") & 
+           Commission.Date < as.Date("2024-01-01")) %>%
+  
+  #aggregate variables of name
+  mutate(name = str_trim(paste
+        (First.Name, Middle.Name, Last.Name, Suffix, sep = " "))) %>%
+  
+  mutate(jobs = ifelse(is.na(`Professional.Career`),0,
+      #count amount of semi colons, add 1 for the last one
+      str_count(`Professional.Career`, ";") + 1)) %>%
+  select(nid, name, jobs) %>%
+  arrange(nid)
+  
+
+print(head(judges_tibble, n = 5))
+
+#summary stats
+num_judges <- nrow(judges_tibble)
+average_jobs <- mean(judges_tibble$jobs, na.rm = TRUE)
+median_jobs <- median(judges_tibble$jobs, na.rm = TRUE)
+max_jobs <- max(judges_tibble$jobs, na.rm = TRUE)
+
+
+```
+
+There are `r num_judges` judges in this tibble. The average number of prior jobs each judge had is `r average_jobs`, the median number of prior jobs each judge had is `r median_jobs`, and the maximum number of prior jobs a judge had is `r max_jobs`.
+
+<!-- DO NOT EDIT THIS LINE OR ANYTHING BELOW IT. ALL OF YOUR WORK SHOULD BE COMPLETED ABOVE. -->
+
+## Appendix: All code in this assignment
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+# this chunk generates the complete code appendix. 
+# eval=FALSE tells R not to run (``evaluate'') the code here (it was already run before).
+```
