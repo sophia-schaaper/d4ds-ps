@@ -1,0 +1,153 @@
+---
+title: "MY472: Practice Problem Set Solutions"
+author: "Sophia Schaaper"
+date: "Autumn Term 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# this chunk contains code that sets global options for the entire .Rmd. 
+# we use include=FALSE to suppress it from the top of the document, but it will still appear in the appendix. 
+
+knitr::opts_chunk$set(echo = FALSE) # actually set the global chunk options. 
+# we set echo=FALSE to suppress code such that it by default does not appear throughout the document. 
+# note: this is different from .Rmd default
+
+#load libraries 
+library(tidyverse)
+
+```
+
+This document contains the necessary commands and layout to meet the formatting requirements for MY472. You should use this file as the basis for your own answers to the assigned exercises.
+
+As you see fit, you may delete the instructions/examples that we include in this file. Please *do not* delete: (1) the header at the top between the dashed lines, (2) the first chunk of R code above, (3) the Evaluation section or (4) the Appendix section. Please also put your LSE candidate number in the "author" line at the top of this file. Do not include any personally identifying information in your Submission Repo, except for your LSE candidate number.
+
+Failure to put your LSE candidate number in the heading above will cause you to receive zero marks and/or no feedback on this assignment.
+
+## Exercise 1.
+
+My public repository can be found [here](https://github.com/sophia-schaaper/formative-MY472).
+
+## Exercise 2.
+
+For this exercise we will work with tooth growth data in Guinea Pigs, which reports the effect of vitamin c on tooth growth in 60 Guinea Pigs, this was evaluated by giving the guinea pigs three different doses (`0.5`, `1`, or `2` mg/day) either via orange juice (`OJ`) or ascorbic acid (`VC`). The table below shows the first few observations from this dataset.
+
+```{r tidy data}
+
+#Load and view first rows of the data
+data("ToothGrowth")
+head(ToothGrowth)
+
+```
+
+This data is **tidy** because:
+
+1.  each variable has its own column (`len`, for the length of odontoblasts, the cells responsible for tooth growth; `supp` whether they got OJ or VC; and `dose`, each have their own column)
+2.  each observation has its own row (there are 60 rows, one for each Guinea Pig), and
+3.  therefore each value has its own cell.
+
+We will now make this data untidy.
+
+```{r untidy data, warning=FALSE}
+
+#Turning the data to wide format, 
+#Each column representing a dosage.
+
+untidy_ToothGrowth <- ToothGrowth %>%
+  pivot_wider(names_from = dose, 
+              values_from = len, 
+              names_prefix = "dose: ")
+
+head(untidy_ToothGrowth)
+
+```
+
+This data is **untidy** because each cell has a list with multiple values, meaning that each cell represents the values for `len` for each combination of `supp` and `dose`, this violates *at least* the last condition, as each observation does not have its own cell.
+
+## Exercise 3.
+
+For this exercise we will use student's sleep data, which reports the effects, in extra hours of sleep, of two soporific drugs on a sample of 10 students.
+
+We want to see how much more effective the second drug is in comparison to the first drug. For this, we will create a new variable `difference` where, for each student, we will compute the difference in effect between the first and second drug. To see how much more effective drug 2 is, we will subtract the effect of drug 1 from the effect of drug 2.
+
+```{r trasnforming data, echo=TRUE}
+
+#Loading the data
+data("sleep")
+
+#Compute the difference in effect between the drugs, turn to time format
+
+sleep_diff <- sleep %>%
+  group_by(ID) %>%          #Group to have one row per student
+  summarise(difference = 
+              extra[group == 2] - extra[group == 1]) %>% #Calculating difference
+  mutate(hours = trunc(difference),
+         minutes = round((difference - hours) * 60)) 
+  #Turning to time format by creating a variable for the hours and one for the minutes
+
+#printing transformed data
+sleep_diff
+
+```
+
+I chose to print the whole data instead of using head, as the data only contains 10 rows. This transformation allows us to see that in every case (expect for student #5, where there is no difference between the effects of the two drugs) drug 2 was more effective in increased their hours of sleep. In this way, we can more clearly compare the effects of the drugs.
+
+## Exercise 4.
+
+```{r president polls data setup and plot, warning=F, message=FALSE}
+
+#Load the president_polls data
+president_polls <- read_csv("president_polls.csv")
+
+#Convert end date to date format using lubridate
+president_polls$end_date <- mdy(president_polls$end_date)
+
+#Filter by candidate and date
+polls_filtered <- president_polls %>%
+  filter(candidate_name == "Kamala Harris" | 
+           candidate_name == "Donald Trump", 
+         end_date>="2024-08-01",
+         end_date<="2024-10-17",
+         is.na(state))
+
+#Define range for axis and date variable
+xrange <- range(polls_filtered$end_date, na.rm=TRUE)
+
+#Plotting results
+ggplot(polls_filtered, aes(x = end_date, y = pct)) +
+  
+  #Jittered points, in lighter color for cleanliness of plot
+  geom_point(data = polls_filtered %>% filter(candidate_name == "Kamala Harris"),
+             color = "#92c5de", position = position_jitter(), size = 1, na.rm = T) +
+  geom_point(data = polls_filtered %>% filter(candidate_name == "Donald Trump"),
+             color = "#f4a582", position = position_jitter(), size = 1, na.rm = T) +
+  
+  #Smooth lines, darker colors for cleanliness of plot
+  geom_smooth(aes(color = candidate_name), size = 1.3, se = FALSE) + 
+  
+  #Line and legend colors
+  scale_color_manual(values = c("Kamala Harris" = "#0571b0", 
+                                "Donald Trump" = "#ca0020")) +
+  
+  #Labels and themes
+  labs(title = "2024 National Election Polling Results", x = "Poll Dates",
+       y = "Percentage", color = "Candidate") + 
+  
+  scale_x_date(limits = xrange, expand = c(0, 1), 
+               date_breaks = "15 days", date_labels = "%d %b") +
+  
+  theme_minimal() +
+  
+  theme(plot.title = element_text(size = 14, face = "bold", hjust = 0.5))
+
+```
+
+This plot shows the polling percentages for Kamala Harris and Donald Trump between 1 August 2024 and 17 October 2024, with points representing the specific results for each candidate on a specific date and the lines representing a polling average. Source: <https://projects.fivethirtyeight.com/polls/president-general/2024/>
+
+
+## Appendix: All code in this assignment
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+# this chunk generates the complete code appendix. 
+# eval=FALSE tells R not to run (``evaluate'') the code here (it was already run before).
+```

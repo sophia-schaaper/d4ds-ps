@@ -1,0 +1,70 @@
+---
+title: 'MY472: Practice Problem Set (formative)'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Please do not include any personally identifiable information in any file you include in your Submission Repo (except your LSE candidate number) so that we can ensure your solutions are marked anonymously.**
+
+## Exercise 1
+
+In this exercise you will simulate a version control workflow using `git` and GitHub. You should create a new public repository, and then use it to demonstrate the pipeline described below. This public repo should not be the same one you use to prepare this assessment (your Submission Repo). In your knitted `.html` file, your answer to this exercise should be a single sentence providing a clickable hyperlink URL for the public repository you create and manipulate (e.g. "My public repository can be found [here](https://github.com/ryanhubert/firstrepository)").
+
+We strongly recommend you read through the entirety of this exercise carefully before beginning.
+
+#### Pipeline
+
+1.  A developer creates a new GitHub repository, which contains an Rmarkdown file that has an R code chunk defining a function with a single argument `data`, that takes a dataset and performs some input transformation on it. This transformation can be as simple or complex as you like, but should work on at least one dataset (either a built-in R dataset, or one provided by you in the public repository). The function should return the transformed data.
+
+2.  The developer knits the Rmarkdown file, which generates an HTML file with the function inside a code chunk and the output of the function after running it on the dataset. The developer includes this knitted HTML file in the repository.
+
+3.  The developer wishes to a second function that does a different transformation, but also takes a single argument `data` (a dataset) and returns a transformed dataset. To preserve the integrity of the main branch, they add this functionality in a new branch called `dev`, which they do *not* immediately merge into main.
+
+4.  The developer then goes on holiday and gets an email from their supervisor asking them to rename the argument in the second function `data_new`. This seems like a very silly request, but the developer obliges. Since the developer does not have their computer handy, they make this small edit directly in the Rmarkdown file in GitHub.
+
+5.  Once they are home, the developer knits the Rmarkdown file again, now containing the second function with the `data_new` argument, and including the updated knitted HTML file in the repo. The developer then merges the `dev` branch into `main` and deletes it.
+
+*Hints:*
+
+-   We will evaluate your work partly by looking at the version control history -- make sure that your commit messages are informative
+
+-   You do not need to worry about the *number* of commits you make: you may make mistakes that need rectifying, or want to make multiple commits to achieve each stage of the above workflow. These actions are fine, so long as you document what each commit does (e.g. "fix issue in function documentation").
+
+-   Before starting this exercise, think carefully about the files you will eventually need to make (and the structure of your repository). Make sure your final repository includes all files mentioned in the workflow and which are needed to run your code. You do not need to submit these separately as part of your submission in your Submission Repo.
+
+## Exercise 2
+
+R includes several built-in datasets, that can be found by calling `data()`. You can load a specific dataset into memory by calling `data("name_of_dataset")`.
+
+First, pick any of the built-in datasets and load it into R.
+
+Report whether your chosen dataset is "tidy" and explain why. You should evidence your claim by presenting the output of the `head()` function. This function shows the first few rows of the target object.
+
+If you believe your data is tidy, use R to create an untidy version in either wide or long format. If you believe your data is untidy, convert your data to a tidy format. Again, evidence your work by including the output from `head()` on your converted data frame. Finally, discuss briefly, in words, what you did and why your data is now tidy/untidy compared to the original dataset.
+
+## Exercise 3
+
+Choose a different built-in dataset within R and load it into memory.
+
+Your task is to transform this data frame and demonstrate the use of at least the following three components:
+
+-   A piping operator: either `%>%` or `|>`
+
+-   A call to the `group_by()` and `summarise()` functions
+
+-   A transformation of a numeric variable *after* having called `summarise()`
+
+For this question you should report the code you use here (rather than only in the code appendix) by using `echo=TRUE` in this code chunk's options. Each step should be annotated with a code comment that succinctly explains what you are doing. Evidence your work by including the output from `head()` on your transformed data. Finally, discuss some aspect of the transformed data that is informative *and* that would not have been evident from the original format of the data.
+
+## Exercise 4
+
+Create a plot of national polling results for the current U.S. presidential election. Your plot should show polling results from *national* polls conducted from August 1 to October 17. The data is compiled by FiveThirtyEight and can be found in the `president_polls.csv` (included in your Submission Repo). You can read more about FiveThirtyEight's work here:
+
+<https://projects.fivethirtyeight.com/polls/president-general/2024/>
+
+On the x-axis should be the date (use the `end_date` variable), and on the y-axis should be the polling result. Only show results for Donald Trump and Kamala Harris. Each dot on your plot should give a specific polling result for a specific candidate on a specific date. Also draw a polling average over the dots using the smoothed conditional means `geom` from ggplot (see <https://ggplot2.tidyverse.org/reference/geom_smooth.html>).
+
+Make your plot as "pretty" and easy to read as possible, adhering to the principles from lecture. In addition to choosing sensible axis limits, theme, etc., please also be sure to colour-code the dots and lines as follows: blue for Harris and red for Trump. When specifying choosing your colours, be sure to use a colourblind safe red and blue (from [here](https://colorbrewer2.org/#type=diverging&scheme=RdBu&n=5)). You should also "jitter" your points, if need be (see the help docs for `geom_point`).
